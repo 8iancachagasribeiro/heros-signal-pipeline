@@ -7,12 +7,15 @@ CONTEXT
 -------
 Target: a cycle-phase predictor with smooth-signal fraction (SSF) >= 0.70.
 Current best instrument: at-home urinary estrone-3-glucuronide (E3G), SSF ~ 0.47.
+  -- a figure now under re-audit: see section (3). If it was computed on a
+     gap-compressed series it is INFLATED, and the attenuation argument below is
+     therefore CONSERVATIVE: the real predictor is even weaker than stated.
 Because attenuation is MULTIPLICATIVE -- r_obs = r_true * sqrt(SSF_x * SSF_y) -- a weak
 predictor caps the observable coupling no matter how good the outcome measure is.
 
-THE QUESTION (raised by Prof. R. C. Contreras)
-----------------------------------------------
-  "You used only one PCA component? Why not use more, until you capture ~95% of variance?"
+THE QUESTION
+------------
+  "Why only one PCA component? Why not use more, until ~95% of variance is captured?"
 
 Answered in section (2) below. Short version: it makes things WORSE, because NOISE IS
 VARIANCE. Accumulating components to 95% of variance accumulates noise along with signal.
@@ -42,14 +45,11 @@ USAGE
   python wearable_fusion.py --data-dir /path/to/mcphases
 """
 import argparse
-import warnings
 
 import numpy as np
 import pandas as pd
 
 from ssf_estimators import ssf_spectral
-
-warnings.filterwarnings("ignore")
 
 SIGNALS = ["rhr", "temp_skin", "temp_wrist", "rmssd", "low_frequency", "high_frequency"]
 
@@ -99,7 +99,7 @@ def pc_scores(X):
 
 # ------------------------------- (1) + (2) ------------------------------- #
 def components_analysis(M):
-    """Does adding PCA components help? (Prof. Contreras's question.)
+    """Does adding PCA components help?
 
     *** THE ANSWER IS: THIS DATASET CANNOT TELL US. ***
 
@@ -111,6 +111,9 @@ def components_analysis(M):
     An answer that flips with an arbitrary preprocessing choice is not an answer. I am
     reporting the disagreement rather than picking the run I like, because picking would
     be the mistake.
+
+    NOTE ON THE FUSION RULE: the k components are combined by an UNWEIGHTED SUM of PC
+    scores. This is a choice, not a derivation, and it is declared as such.
     """
     print("=" * 72)
     print("(2)  DOES ADDING PCA COMPONENTS HELP?  -- ROBUSTNESS TO PREPROCESSING")
@@ -166,8 +169,11 @@ def components_analysis(M):
     print("    * PCA orders components by VARIANCE, not by cycle-phase information.")
     print("      There is no reason for those to coincide, and NOISE IS VARIANCE --")
     print("      so accumulating components to 95% of variance accumulates noise too.")
-    print("    * Whether that hurts MORE than the extra signal helps is exactly what")
-    print("      this dataset cannot resolve. See sections (3) and (4).")
+    print("    * The principled alternative is a SUPERVISED decomposition (PLS, CCA,")
+    print("      LDA against phase), which maximises covariance with the TARGET rather")
+    print("      than variance. Not implemented here; see README, open questions.")
+    print("    * Whether the extra noise hurts MORE than the extra signal helps is")
+    print("      exactly what this dataset cannot resolve. See sections (3) and (4).")
 
 
 # ------------------------------- (3) THE AUDIT ------------------------------- #
@@ -215,7 +221,12 @@ def interpolation_bias_audit(n_rep=400, seed=7):
 # ------------------------------- (4) THE CLEAN TEST ------------------------------- #
 def contiguous_only(M, min_len=50):
     """The only defensible computation: the LONGEST CONTIGUOUS, GAP-FREE run per subject
-    with all six signals present. No interpolation -> no interpolation bias."""
+    with all six signals present. No interpolation -> no interpolation bias.
+
+    CAVEAT: min_len = 50 days is ~1.8 cycles at a 28-day period. Two full cycles is the
+    floor at which the fundamental is resolvable as a Fourier bin distinct from trend.
+    50 days is therefore the bare minimum, and results at that length are fragile.
+    """
     print("\n" + "=" * 72)
     print("(4)  THE CLEAN TEST: contiguous, gap-free segments only. NO interpolation.")
     print("=" * 72)
@@ -244,7 +255,13 @@ def contiguous_only(M, min_len=50):
         rows.append(dict(
             length=best_len,
             ssf_pc1=ssf_spectral(pc1),
-            ssf_e3g=ssf_spectral(e[m]) if m.sum() >= 40 else np.nan,
+            # E3G has its OWN missingness, independent of the wearable signals.
+            # Passing e[m] would compress non-consecutive days into a consecutive
+            # array -- the EXACT gap-compression bias quantified in section (3).
+            # Fail loudly (NaN) rather than return an inflated number.
+            ssf_e3g=ssf_spectral(e) if (m.all() and len(e) >= 40) else np.nan,
+            # The correlation does NOT require regular spacing, so the masked
+            # subset is legitimate here.
             r_pc1_e3g=(abs(np.corrcoef(pc1[m], e[m])[0, 1])
                        if m.sum() >= 25 and np.std(e[m]) > 1e-9 else np.nan),
         ))
@@ -254,7 +271,13 @@ def contiguous_only(M, min_len=50):
     if len(r):
         print(f"  median run length : {r.length.median():.0f} days")
         print(f"  SSF of PC1        : {r.ssf_pc1.median():.3f}")
-        print(f"  SSF of E3G        : {r.ssf_e3g.median():.3f}")
+        n_e3g = int(r.ssf_e3g.notna().sum())
+        if n_e3g:
+            print(f"  SSF of E3G        : {r.ssf_e3g.median():.3f}   (n = {n_e3g}, gap-free)")
+        else:
+            print(f"  SSF of E3G        : NOT COMPUTABLE WITHOUT BIAS")
+            print(f"                      (no subject has a gap-free E3G series over the")
+            print(f"                       segment; see section (3))")
         print(f"  target            : 0.700")
     print("\n  => WITH N = 1, THIS QUESTION IS NOT ANSWERABLE WITH THIS DATASET.")
     print("     Not for lack of method -- for lack of data with continuous coverage.")
@@ -287,6 +310,8 @@ def surviving_signal(M):
         ssb = sum(len(y[p == u]) * (y[p == u].mean() - y.mean()) ** 2 for u in np.unique(p))
         eta2.append(ssb / sst)
 
+    # eta^2 compares group means across a CATEGORICAL phase variable: unlike the SSF,
+    # it does not assume regular temporal spacing, so it survives the gaps.
     print(f"\n  eta^2 of PC1 with CYCLE PHASE : {np.median(eta2):.3f}   (n = {len(eta2)})")
     print("\n  => The cycle signal IS present in the wearables. It is simply not")
     print("     extractable by a linear, variance-ordered method.")
