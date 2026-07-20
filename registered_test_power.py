@@ -30,8 +30,8 @@ import h4_frontier as H
 N_SUBJ   = 42
 N_OBS    = 85      # CORRECTED: median paired obs per person (6-level map)
 SPAN     = 90      # days in study (~3 cycles)
-R_X_REAL = 0.58    # smooth signal fraction, E3G urine strip
-R_Y_REAL = 0.41    # smooth signal fraction, affective self-report
+R_X_REAL = 0.469   # smooth signal fraction, E3G urine strip (validated spectral estimator)
+R_Y_REAL = 0.323  # smooth signal fraction, confirmatory self-report (validated spectral estimator)
 B_SURR   = 500     # surrogates, as registered
 ALPHA    = 0.05
 
