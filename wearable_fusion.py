@@ -10,7 +10,7 @@ Current best instrument: at-home urinary estrone-3-glucuronide (E3G), SSF ~ 0.47
 Because attenuation is MULTIPLICATIVE -- r_obs = r_true * sqrt(SSF_x * SSF_y) -- a weak
 predictor caps the observable coupling no matter how good the outcome measure is.
 
-THE QUESTION (raised by Prof. R. C. Contreras)
+THE QUESTION (raised by Prof. R. C. C)
 ----------------------------------------------
   "You used only one PCA component? Why not use more, until you capture ~95% of variance?"
 
